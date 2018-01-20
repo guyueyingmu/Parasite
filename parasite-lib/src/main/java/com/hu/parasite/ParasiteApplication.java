@@ -1,6 +1,5 @@
 package com.hu.parasite;
 
-import android.annotation.SuppressLint;
 import android.app.Application;
 import android.app.Instrumentation;
 import android.content.Context;
@@ -8,7 +7,7 @@ import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.res.AssetManager;
 import android.content.res.Resources;
-import android.support.multidex.MultiDex;
+import android.os.Build;
 import android.text.TextUtils;
 import android.util.ArrayMap;
 
@@ -22,10 +21,8 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
 
+import dalvik.system.DexClassLoader;
 import dalvik.system.PathClassLoader;
-
-import static android.os.Build.VERSION.SDK_INT;
-import static android.os.Build.VERSION_CODES.KITKAT;
 
 /**
  * Created by HuJi on 2017/12/29.
@@ -37,6 +34,7 @@ public abstract class ParasiteApplication extends Application {
     private static volatile ParasiteApplication sInstance = null;
 
     private String mAppDir = null;
+    private String mCodeDir = null;
     private String mLibraryDir = null;
     private String mResourceDir = null;
     private String mAppClassName = null;
@@ -60,17 +58,17 @@ public abstract class ParasiteApplication extends Application {
     /**
      * 做一些初始化的活(需要设置mParasitifer)
      */
-    public abstract void onInit(Context context) throws Exception;
+    public abstract void onInit(Context context) throws Throwable;
 
     /**
      * 加载成功，可以干一些事了
      */
-    public abstract void onLoad(ClassLoader classLoader) throws Exception;
+    public abstract void onLoad(ClassLoader classLoader) throws Throwable;
 
     /**
      * 加载失败，自杀吧
      */
-    public abstract void onError(Exception e);
+    public abstract void onError(Throwable e);
 
     /**
      * apk路径
@@ -82,8 +80,22 @@ public abstract class ParasiteApplication extends Application {
     /**
      * apk路径
      */
-    public void setAppDir(String appDir) {
+    protected void setAppDir(String appDir) {
         mAppDir = appDir;
+    }
+
+    /**
+     * dex优化路径
+     */
+    public String getCodeDir() {
+        return mCodeDir;
+    }
+
+    /**
+     * dex优化路径
+     */
+    protected void setCodeDir(String codeDir) {
+        this.mCodeDir = codeDir;
     }
 
     /**
@@ -96,7 +108,7 @@ public abstract class ParasiteApplication extends Application {
     /**
      * lib路径
      */
-    public void setLibraryDir(String libraryDir) {
+    protected void setLibraryDir(String libraryDir) {
         mLibraryDir = libraryDir;
     }
 
@@ -110,7 +122,7 @@ public abstract class ParasiteApplication extends Application {
     /**
      * 资源路径
      */
-    public void setResourceDir(String resourceDir) {
+    protected void setResourceDir(String resourceDir) {
         mResourceDir = resourceDir;
     }
 
@@ -124,7 +136,7 @@ public abstract class ParasiteApplication extends Application {
     /**
      * Application名
      */
-    public void setAppClassName(String appClassName) {
+    protected void setAppClassName(String appClassName) {
         mAppClassName = appClassName;
     }
 
@@ -156,10 +168,19 @@ public abstract class ParasiteApplication extends Application {
      * @param parent
      * @throws ReflectiveOperationException
      */
-    private ParasiteClassLoader replaceClassLoader(String appDir, String libraryDir, ClassLoader parent)
+    private ParasiteClassLoader createClassLoader(String appDir, String codeDir, String libraryDir, ClassLoader parent)
             throws ReflectiveOperationException
     {
         ParasiteClassLoader classLoader = new ParasiteClassLoader(appDir, libraryDir, parent);
+        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.KITKAT) {
+            DexClassLoader dexClassLoader = new DexClassLoader(appDir, codeDir, null, parent);
+            Object pathList = ReflectUtil.get(dexClassLoader, "pathList");
+            Object dexElements = ReflectUtil.get(pathList, "dexElements");
+            pathList = ReflectUtil.get(classLoader, "pathList");
+            ReflectUtil.set(pathList, "dexElements", dexElements);
+        }
+
+        Thread.currentThread().setContextClassLoader(classLoader);
         Object activityThread = ReflectUtil.invoke("android.app.ActivityThread", "currentActivityThread");
         Object mPackages = ReflectUtil.get(activityThread, "mPackages");
         for (Map.Entry<String, WeakReference<?>> entry
@@ -169,6 +190,7 @@ public abstract class ParasiteApplication extends Application {
                 ReflectUtil.set(loadedApk, "mClassLoader", classLoader);
             }
         }
+
         return classLoader;
     }
 
@@ -178,7 +200,7 @@ public abstract class ParasiteApplication extends Application {
      * @return 新的application
      * @throws ReflectiveOperationException
      */
-    private Application replaceApplication(String appClassName) throws ReflectiveOperationException
+    private Application createApplication(String appClassName) throws ReflectiveOperationException
     {
         Object activityThread = ReflectUtil.invoke("android.app.ActivityThread", "currentActivityThread");
 
@@ -204,8 +226,7 @@ public abstract class ParasiteApplication extends Application {
         // 生成新的application
         Application application =
                 (Application) ReflectUtil.invoke(info, "makeApplication",
-                        new Object[] { boolean.class, Instrumentation.class },
-                        new Object[] { false, null });
+                        boolean.class, Instrumentation.class, false, null);
 
         // 替换所有mApplication
         ReflectUtil.set(activityThread, "mInitialApplication", application);
@@ -263,7 +284,7 @@ public abstract class ParasiteApplication extends Application {
     }
 
     /**
-     * 替换资源路径
+     * 替换资源路径（直接添加就好了）
      * @param context
      * @param resourcedir
      * @throws ReflectiveOperationException
@@ -273,34 +294,15 @@ public abstract class ParasiteApplication extends Application {
     {
         Object activityThread = ReflectUtil.invoke("android.app.ActivityThread", "currentActivityThread");
 
-        AssetManager assets = context.getAssets();
-        AssetManager assetManager = null;
-        // Baidu os
-        if (assets.getClass().getName().equals("android.content.res.BaiduAssetManager")) {
-            assetManager = (AssetManager) ReflectUtil.newInstance("android.content.res.BaiduAssetManager");
-        } else {
-            assetManager =  AssetManager.class.newInstance();
-        }
-
-        ReflectUtil.invoke(assetManager, "addAssetPath",
-                new Object[] { String.class }, new Object[] { resourcedir });
-
-        // Kitkat needs this method call, Lollipop doesn't. However, it doesn't seem to cause any harm
-        // in L, so we do it unconditionally.
-        ReflectUtil.invoke(assetManager, "ensureStringBlocks");
-
-        // Iterate over all known Resources objects
+        // 参考的Tinker资源修复部分
         Collection<WeakReference<Resources>> references;
-        if (SDK_INT >= KITKAT) {
-            //pre-N
-            // Find the singleton instance of ResourcesManager
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
             Object resourcesManager = ReflectUtil.invoke(
                     "android.app.ResourcesManager", "getInstance");
             try {
                 Object activeResources19 = ReflectUtil.get(resourcesManager, "mActiveResources");
                 references = ((ArrayMap<?, WeakReference<Resources>>)activeResources19).values();
-            } catch (NoSuchFieldException ignore) {
-                // N moved the resources to mResourceReferences
+            } catch (NoSuchFieldException e) {
                 references = (Collection<WeakReference<Resources>>)
                         ReflectUtil.get(resourcesManager, "mResourceReferences");
             }
@@ -311,44 +313,16 @@ public abstract class ParasiteApplication extends Application {
 
         for (WeakReference<Resources> wr : references) {
             Resources resources = wr.get();
-            //pre-N
             if (resources != null) {
-                // Set the AssetManager of the Resources instance to our brand new one
+                Object assetManager = null;
                 try {
-                    ReflectUtil.set(resources, "mAssets", assetManager);
-                } catch (Throwable ignore) {
-                    // N
+                    assetManager = ReflectUtil.get(resources, "mAssets");
+                } catch (Throwable e) {
                     Object resourceImpl = ReflectUtil.get(references, "mResourcesImpl");
-                    // for Huawei HwResourcesImpl
-                    ReflectUtil.set(resourceImpl, "mAssets", assetManager);
+                    assetManager = ReflectUtil.get(resourceImpl, "mAssets");
                 }
-
-                /**
-                 * Why must I do these?
-                 * Resource has mTypedArrayPool field, which just like Message Poll to reduce gc
-                 * MiuiResource change TypedArray to MiuiTypedArray, but it get string block from offset instead of assetManager
-                 */
-                try {
-                    final Object origTypedArrayPool = ReflectUtil.get(resources, "mTypedArrayPool");
-                    final int poolSize = ((Object[])ReflectUtil.get(origTypedArrayPool, "mPool")).length;
-                    final Object newTypedArrayPool = ReflectUtil.newInstance(origTypedArrayPool.getClass(),
-                            new Class<?>[] { int.class }, new Object[] { poolSize });
-                    ReflectUtil.set(resources, "mTypedArrayPool", newTypedArrayPool);
-                } catch (Throwable ignored) {
-                }
-
-                resources.updateConfiguration(resources.getConfiguration(), resources.getDisplayMetrics());
-            }
-        }
-
-        // Handle issues caused by WebView on Android N.
-        // Issue: On Android N, if an activity contains a webview, when screen rotates
-        // our resource patch may lost effects.
-        // for 5.x/6.x, we found Couldn't expand RemoteView for StatusBarNotification Exception
-        if (SDK_INT >= 24) {
-            try {
-                ReflectUtil.set(context.getApplicationInfo(), "publicSourceDir", resourcedir);
-            } catch (Throwable ignore) {
+                ReflectUtil.invoke(assetManager, "addAssetPath", String.class, resourcedir);
+                ReflectUtil.invoke(assetManager, "ensureStringBlocks");
             }
         }
     }
@@ -359,16 +333,15 @@ public abstract class ParasiteApplication extends Application {
         super.attachBaseContext(base);
         try {
             onInit(base);
-            mClassLoader = replaceClassLoader(getAppDir(), getLibraryDir(), base.getClassLoader());
+            mClassLoader = createClassLoader(getAppDir(), getCodeDir(), getLibraryDir(), base.getClassLoader());
             if (!TextUtils.isEmpty(getAppDir())) {
                 replaceAppDir(base, getAppDir());
             }
             if (!TextUtils.isEmpty(getResourceDir())) {
                 replaceResourceDir(base, getResourceDir());
             }
-            MultiDex.install(this);
             onLoad(mClassLoader);
-        } catch (Exception e) {
+        } catch (Throwable e) {
             onError(e);
             LogUtil.printErrStackTrace(TAG, e, "attachBaseContext");
         }
@@ -380,9 +353,9 @@ public abstract class ParasiteApplication extends Application {
         super.onCreate();
         try {
             if (!TextUtils.isEmpty(getAppClassName())) {
-                mApplication = replaceApplication(getAppClassName());
+                mApplication = createApplication(getAppClassName());
             }
-        } catch (Exception e) {
+        } catch (Throwable e) {
             onError(e);
             LogUtil.printErrStackTrace(TAG, e, "onCreate");
         }
@@ -405,6 +378,11 @@ public abstract class ParasiteApplication extends Application {
             super(dexPath, librarySearchPath, parent);
         }
 
+        @Override
+        protected Class<?> findClass(String name) throws ClassNotFoundException {
+            return super.findClass(name);
+        }
+
         /**
          * fuck双亲委派
          * @param name
@@ -417,11 +395,6 @@ public abstract class ParasiteApplication extends Application {
                 return super.findClass(name);
             }
             return super.loadClass(name);
-        }
-
-        @Override
-        protected Class<?> findClass(String name) throws ClassNotFoundException {
-            return super.findClass(name);
         }
     }
 }

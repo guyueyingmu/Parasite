@@ -1,10 +1,11 @@
 package com.alipay.mobile.quinox;
 
+import android.content.Context;
+
 import com.hu.parasite.Parasite;
-import com.hu.parasite.ParasiteProxyApplication;
+import com.hu.parasite.annotation.TargetMethod;
 import com.hu.parasite.hook.HookManager;
 import com.hu.parasite.util.LogUtil;
-import com.hu.parasite.util.ReflectUtil;
 
 /**
  * Created by HuJi on 2018/1/1.
@@ -12,23 +13,11 @@ import com.hu.parasite.util.ReflectUtil;
 
 public class ParasiteMain extends Parasite {
 
-    public void invoke() throws Exception {
-        super.invoke();
-        try {
-            getHookManager().hook(
-                    ReflectUtil.getMethod(ParasiteProxyApplication.class, "onLoad", ClassLoader.class),
-                    ReflectUtil.getMethod(ParasiteMain.class, "onLoad", Object.class, ClassLoader.class));
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-    }
+    private static final String TAG = ParasiteMain.class.getSimpleName();
 
-    public static void onLoad(Object aaa, ClassLoader classLoader) throws Exception {
-        try {
-            LogUtil.d("dsadsadsadsa","ParasiteMain_onInitializeSuccess");
-            getHookManager().invoke(aaa, classLoader);
-        } catch (NoSuchMethodException e) {
-            e.printStackTrace();
-        }
+    @TargetMethod("com.alipay.mobile.common.logging.util.LoggingUtil##isDebuggable##android.content.Context")
+    public static boolean isDebuggable(Context context) throws Exception {
+        LogUtil.d(TAG, "isDebuggable: %s", HookManager.getInstance().invoke(null, context));
+        return true;
     }
 }

@@ -28,15 +28,41 @@ public class ReflectUtil {
 
     public static Class<?> loadClass(String className)
             throws ClassNotFoundException {
+        switch (className) {
+            case "boolean": return boolean.class;
+            case "byte": return byte.class;
+            case "char": return char.class;
+            case "short": return short.class;
+            case "int": return int.class;
+            case "long": return long.class;
+            case "float": return float.class;
+            case "double": return double.class;
+            case "void": return void.class;
+        }
         return Class.forName(className, true, getClassLoader());
     }
 
-    public static Method findMethod(String className, String methodName, Object... args)
+    public static Class<?> loadClass(Class<?> clazz) {
+        switch (clazz.getName()) {
+            case "boolean": return Boolean.class;
+            case "byte": return Byte.class;
+            case "char": return Character.class;
+            case "short": return Short.class;
+            case "int": return Integer.class;
+            case "long": return Long.class;
+            case "float": return Float.class;
+            case "double": return Double.class;
+            case "void": return Void.class;
+        }
+        return clazz;
+    }
+
+    public static <T> Method findMethod(String className, String methodName, T... args)
             throws ClassNotFoundException, NoSuchMethodException {
         return findMethod(loadClass(className), methodName, args);
     }
 
-    public static Method findMethod(Class<?> clazz, String methodName, Object... args)
+    public static <T> Method findMethod(Class<?> clazz, String methodName, T... args)
             throws NoSuchMethodException {
         Class<?> tmp = clazz;
         for (; tmp != null; tmp = tmp.getSuperclass()) {
@@ -51,21 +77,32 @@ public class ReflectUtil {
     }
 
     public static boolean equalParams(Method method, Object... params) {
-        Class<?>[] types = method.getParameterTypes();
-        if (types.length != params.length) {
+        return equalParams(method.getParameterTypes(), params);
+    }
+
+    public static boolean equalParams(Class<?>[] parameterTypes, Object... params) {
+        if (parameterTypes.length != params.length) {
             return false;
         }
-        for (int i = 0; i < types.length; i++) {
-            if (params[i] == null && !types[i].isAssignableFrom(Object.class) ||
-                params[i] != null && !types[i].isInstance(params[i])) {
-                return false;
+        for (int i = 0; i < parameterTypes.length; i++) {
+            if (parameterTypes[i].isPrimitive()) {
+                if (params[i] == null || !loadClass(parameterTypes[i]).equals(params[i].getClass())) {
+                    return false;
+                }
+            } else {
+                if (params[i] != null && !parameterTypes[i].isAssignableFrom(params[i].getClass())) {
+                    return false;
+                }
             }
         }
         return true;
     }
 
     public static boolean equalParams(Method method, Class<?>... types) {
-        Class<?>[] parameterTypes = method.getParameterTypes();
+        return equalParams(method.getParameterTypes(), types);
+    }
+
+    public static boolean equalParams(Class<?>[] parameterTypes, Class<?>... types) {
         if (parameterTypes.length != types.length) {
             return false;
         }
@@ -77,27 +114,27 @@ public class ReflectUtil {
         return true;
     }
 
-    public static Method getMethod(String className, String methodName, Object... parameterType)
+    public static <T> Method getMethod(String className, String methodName, T... parameterTypes)
             throws ClassNotFoundException, NoSuchMethodException {
-        return getMethod(loadClass(className), methodName, getClassType(parameterType));
+        return getMethod(loadClass(className), methodName, getClassType(parameterTypes));
     }
 
-    public static Method getMethod(String className, String methodName, Class<?>... parameterType)
+    public static Method getMethod(String className, String methodName, Class<?>... parameterTypes)
             throws ClassNotFoundException, NoSuchMethodException {
-        return getMethod(loadClass(className), methodName, parameterType);
+        return getMethod(loadClass(className), methodName, parameterTypes);
     }
 
-    public static Method getMethod(Class<?> clazz, String methodName, Object... parameterType)
+    public static <T> Method getMethod(Class<?> clazz, String methodName, T... parameterTypes)
             throws ClassNotFoundException, NoSuchMethodException {
-        return getMethod(clazz, methodName, getClassType(parameterType));
+        return getMethod(clazz, methodName, getClassType(parameterTypes));
     }
 
-    public static Method getMethod(Class<?> clazz, String methodName, Class<?>... parameterType)
+    public static Method getMethod(Class<?> clazz, String methodName, Class<?>... parameterTypes)
             throws NoSuchMethodException {
         NoSuchMethodException exception = null;
         for (; clazz != null; clazz = clazz.getSuperclass()) {
             try {
-                Method method = clazz.getDeclaredMethod(methodName, parameterType);
+                Method method = clazz.getDeclaredMethod(methodName, parameterTypes);
                 if (!method.isAccessible()) {
                     method.setAccessible(true);
                 }
@@ -126,39 +163,48 @@ public class ReflectUtil {
         return getMethod(object.getClass(), methodName).invoke(object);
     }
 
-    public static Object invoke(String className, String methodName, Object[] parameterType, Object[] args)
+    public static Object invoke(String className, String methodName, Object... parameterTypesAndParameters)
             throws InvocationTargetException, IllegalAccessException, ClassNotFoundException, NoSuchMethodException {
-        return getMethod(loadClass(className), methodName).invoke(null, args);
+        int length = parameterTypesAndParameters.length;
+        Class<?>[] parameterTypes = getClassType(parameterTypesAndParameters, 0, length >> 1);
+        Object[] parameters = getParameters(parameterTypesAndParameters, length >> 1, length >> 1);
+        return getMethod(loadClass(className), methodName, parameterTypes).invoke(null, parameters);
     }
 
-    public static Object invoke(Class<?> clazz, String methodName, Object[] parameterType, Object[] args)
+    public static Object invoke(Class<?> clazz, String methodName, Object... parameterTypesAndParameters)
             throws InvocationTargetException, IllegalAccessException, ClassNotFoundException, NoSuchMethodException {
-        return getMethod(clazz, methodName, getClassType(parameterType)).invoke(null, args);
+        int length = parameterTypesAndParameters.length;
+        Class<?>[] parameterTypes = getClassType(parameterTypesAndParameters, 0, length >> 1);
+        Object[] parameters = getParameters(parameterTypesAndParameters, length >> 1, length >> 1);
+        return getMethod(clazz, methodName, parameterTypes).invoke(null, parameters);
     }
 
-    public static Object invoke(Object object, String methodName, Object[] parameterType, Object[] args)
+    public static Object invoke(Object object, String methodName, Object... parameterTypesAndParameters)
             throws InvocationTargetException, IllegalAccessException, ClassNotFoundException, NoSuchMethodException {
-        return getMethod(object.getClass(), methodName, getClassType(parameterType)).invoke(object, args);
+        int length = parameterTypesAndParameters.length;
+        Class<?>[] parameterTypes = getClassType(parameterTypesAndParameters, 0, length >> 1);
+        Object[] parameters = getParameters(parameterTypesAndParameters, length >> 1, length >> 1);
+        return getMethod(object.getClass(), methodName, parameterTypes).invoke(object, parameters);
     }
 
-    public static Constructor<?> getConstructor(String className, Object... parameterType)
+    public static <T> Constructor<?> getConstructor(String className, Object... parameterTypes)
             throws ClassNotFoundException, NoSuchMethodException {
-        return getConstructor(loadClass(className), getClassType(parameterType));
+        return getConstructor(loadClass(className), getClassType(parameterTypes));
     }
 
-    public static Constructor<?> getConstructor(String className, Class<?>... parameterType)
+    public static Constructor<?> getConstructor(String className, Class<?>... parameterTypes)
             throws ClassNotFoundException, NoSuchMethodException {
-        return getConstructor(loadClass(className), parameterType);
+        return getConstructor(loadClass(className), parameterTypes);
     }
 
-    public static Constructor<?> getConstructor(Class<?> clazz, Object... parameterType)
+    public static <T> Constructor<?> getConstructor(Class<?> clazz, T... parameterTypes)
             throws ClassNotFoundException, NoSuchMethodException {
-        return getConstructor(clazz, getClassType(parameterType));
+        return getConstructor(clazz, getClassType(parameterTypes));
     }
 
-    public static Constructor<?> getConstructor(Class<?> clazz, Class<?>... parameterType)
+    public static Constructor<?> getConstructor(Class<?> clazz, Class<?>... parameterTypes)
             throws ClassNotFoundException, NoSuchMethodException {
-        Constructor constructor = clazz.getConstructor(parameterType);
+        Constructor constructor = clazz.getConstructor(parameterTypes);
         if (!constructor.isAccessible()) {
             constructor.setAccessible(true);
         }
@@ -177,31 +223,59 @@ public class ReflectUtil {
         return getConstructor(clazz).newInstance();
     }
 
-    public static Object newInstance(String className, Object[] parameterType, Object[] args)
+    public static Object newInstance(String className, Object... parameterTypesAndParameters)
             throws ClassNotFoundException, NoSuchMethodException, IllegalAccessException,
             InvocationTargetException, InstantiationException {
-        return getConstructor(loadClass(className), getClassType(parameterType)).newInstance(args);
+        int length = parameterTypesAndParameters.length;
+        Class<?>[] parameterTypes = getClassType(parameterTypesAndParameters, 0, length >> 1);
+        Object[] parameters = getParameters(parameterTypesAndParameters, length >> 1, length >> 1);
+        return getConstructor(loadClass(className), parameterTypes).newInstance(parameters);
     }
 
-    public static Object newInstance(Class clazz, Object[] parameterType, Object[] args)
+    public static Object newInstance(Class clazz, Object... parameterTypesAndParameters)
             throws ClassNotFoundException, NoSuchMethodException, IllegalAccessException,
             InvocationTargetException, InstantiationException {
-        return getConstructor(clazz, getClassType(parameterType)).newInstance(args);
+        int length = parameterTypesAndParameters.length;
+        Class<?>[] parameterTypes = getClassType(parameterTypesAndParameters, 0, length >> 1);
+        Object[] parameters = getParameters(parameterTypesAndParameters, length >> 1, length >> 1);
+        return getConstructor(clazz, parameterTypes).newInstance(parameters);
     }
 
-    private static Class<?>[] getClassType(Object... parameterType)
+    private static <T> Class<?>[] getClassType(T... parameterTypes)
             throws ClassNotFoundException {
-        Class<?>[] type = new Class[parameterType != null ? parameterType.length : 0];
+        Class<?>[] type = new Class[parameterTypes != null ? parameterTypes.length : 0];
         for (int i = 0; i < type.length; i++) {
-            if (parameterType[i] instanceof Class<?>) {
-                type[i] = (Class<?>) parameterType[i];
-            } else if (parameterType[i] instanceof String) {
-                type[i] = loadClass((String) parameterType[i]);
+            if (parameterTypes[i] instanceof Class<?>) {
+                type[i] = (Class<?>) parameterTypes[i];
+            } else if (parameterTypes[i] instanceof String) {
+                type[i] = loadClass((String) parameterTypes[i]);
             } else {
-                type[i] = parameterType[i].getClass();
+                type[i] = parameterTypes[i].getClass();
             }
         }
         return type;
+    }
+
+    private static Class<?>[] getClassType(Object[] parameterTypes, int offset, int length)
+            throws ClassNotFoundException {
+        Class<?>[] type = new Class[length];
+        for (int i = offset; i < offset + length; i++) {
+            if (parameterTypes[i] instanceof Class<?>) {
+                type[i] = (Class<?>) parameterTypes[i];
+            } else if (parameterTypes[i] instanceof String) {
+                type[i] = loadClass((String) parameterTypes[i]);
+            } else {
+                type[i] = parameterTypes[i].getClass();
+            }
+        }
+        return type;
+    }
+
+    private static Object[] getParameters(Object[] parameters, int offset, int length)
+            throws ClassNotFoundException {
+        Object[] params = new Object[length];
+        System.arraycopy(parameters, offset, params, 0, length);
+        return params;
     }
 
     public static Field getField(Object object, String fieldName)

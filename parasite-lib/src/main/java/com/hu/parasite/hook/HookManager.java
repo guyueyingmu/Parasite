@@ -1,5 +1,8 @@
 package com.hu.parasite.hook;
 
+import com.hu.parasite.annotation.TargetMethod;
+import com.hu.parasite.util.ReflectUtil;
+
 import java.lang.reflect.Method;
 
 /**
@@ -15,7 +18,7 @@ public class HookManager {
     private static final String TAG = HookManager.class.getName();
     private static volatile HookManager sInstance = null;
 
-    public static HookManager getsInstance() {
+    public static HookManager getInstance() {
         if (sInstance == null){
             synchronized (HookManager.class) {
                 if (sInstance == null){
@@ -27,6 +30,22 @@ public class HookManager {
     }
 
     private final HookHelper mHookHelper = HookHelper.getsInstance();
+
+    public void hook(Class<?> clazz) throws Exception {
+        Method[] methods = clazz.getDeclaredMethods();
+        for (Method method : methods) {
+            if (method.isAnnotationPresent(TargetMethod.class)) {
+                String[] values = method.getAnnotation(TargetMethod.class).value().split("##");
+                if (values.length >= 3) {
+                    Method target = ReflectUtil.getMethod(values[0], values[1], values[2].split(","));
+                    hook(target, method);
+                } else {
+                    Method target = ReflectUtil.getMethod(values[0], values[1]);
+                    hook(target, method);
+                }
+            }
+        }
+    }
 
     public synchronized void hook(Method origin, Method hook) throws HookException {
         HookInfo hookInfo = mHookHelper.getByOrigin(origin);
@@ -48,17 +67,17 @@ public class HookManager {
         nativeUnhook(origin, false);
     }
 
-    public <T> T invoke(Object object, Object... args) throws Exception {
+    public synchronized Object invoke(Object object, Object... args) throws Exception {
         StackTraceElement element = new Throwable().getStackTrace()[1];
         HookInfo hookInfo = mHookHelper.getByHook(element.getClassName(), element.getMethodName(), args);
         if (hookInfo == null) {
             throw new HookException("%s::%s has not been hooked",
                     element.getClassName(), element.getMethodName());
         }
-        nativeUnhook(hookInfo.mOrigin, true);
-        T ret = (T) hookInfo.mOrigin.invoke(object, args);
-        nativeHook(hookInfo.mOrigin, hookInfo.mOrigin);
-        return (T) ret;
+        nativeUnhook(hookInfo.getOrigin(), true);
+        Object result = hookInfo.getOrigin().invoke(object, args);
+        nativeHook(hookInfo.getOrigin(), hookInfo.getHook());
+        return result;
     }
 
     private native void nativeHook(Method oldMethod, Method newMethod);

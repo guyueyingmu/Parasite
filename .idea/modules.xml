@@ -4,6 +4,7 @@
     <modules>
       <module fileurl="file://$PROJECT_DIR$/Parasite.iml" filepath="$PROJECT_DIR$/Parasite.iml" />
       <module fileurl="file://$PROJECT_DIR$/app/app.iml" filepath="$PROJECT_DIR$/app/app.iml" />
+      <module fileurl="file://$PROJECT_DIR$/parasite-lib/parasite-lib.iml" filepath="$PROJECT_DIR$/parasite-lib/parasite-lib.iml" />
     </modules>
   </component>
 </project>

@@ -69,9 +69,9 @@ public class HookHelper {
         HookInfo hookInfo = mOriginMap.remove(className, methodName, types);
         if (hookInfo != null) {
             mHookMap.remove(
-                    hookInfo.mHook.getDeclaringClass().getName(),
-                    hookInfo.mHook.getName(),
-                    hookInfo.mHook.getTypeParameters());
+                    hookInfo.getHook().getDeclaringClass().getName(),
+                    hookInfo.getHook().getName(),
+                    hookInfo.getHook().getTypeParameters());
         }
     }
 
@@ -79,9 +79,9 @@ public class HookHelper {
         HookInfo hookInfo = mHookMap.remove(className, methodName, types);
         if (hookInfo != null) {
             mOriginMap.remove(
-                    hookInfo.mOrigin.getDeclaringClass().getName(),
-                    hookInfo.mOrigin.getName(),
-                    hookInfo.mOrigin.getTypeParameters());
+                    hookInfo.getOrigin().getDeclaringClass().getName(),
+                    hookInfo.getOrigin().getName(),
+                    hookInfo.getOrigin().getTypeParameters());
         }
     }
 
@@ -117,7 +117,7 @@ public class HookHelper {
                 return null;
             }
             for (HookInfo hookInfo : hookInfos) {
-                if (ReflectUtil.equalParams(hookInfo.mOrigin, args)) {
+                if (ReflectUtil.equalParams(hookInfo.getParameterTypes(), args)) {
                     return hookInfo;
                 }
             }
@@ -135,7 +135,7 @@ public class HookHelper {
             }
             for (Iterator<HookInfo> iterator = hookInfos.iterator(); iterator.hasNext();) {
                 HookInfo hookInfo = iterator.next();
-                if (ReflectUtil.equalParams(iterator.next().mOrigin, args)) {
+                if (ReflectUtil.equalParams(iterator.next().getParameterTypes(), args)) {
                     iterator.remove();
                     if (hookInfos.isEmpty()) {
                         hookInfoMap.remove(methodName);

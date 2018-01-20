@@ -1,6 +1,5 @@
 package com.hu.parasite.util;
 
-import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.Closeable;
 import java.io.File;
@@ -13,9 +12,7 @@ import java.math.BigInteger;
 import java.nio.channels.FileChannel;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.util.Enumeration;
 import java.util.zip.ZipEntry;
-import java.util.zip.ZipFile;
 import java.util.zip.ZipInputStream;
 
 /**
@@ -26,68 +23,37 @@ public class FileUtil {
 
     private static final String TAG = FileUtil.class.getSimpleName();
     private static final int BUFFER_SIZE = 4096;
-
-    /**
-     * 解压zip文件到指定目录
-     * @param zip
-     * @param dest
-     */
-    public static void unzip(File zip, String dest, int i) throws IOException {
-        byte[] buffer = new byte[BUFFER_SIZE];
-        int length = -1;
-        ZipFile zipFile = new ZipFile(zip);
-        for (Enumeration e = zipFile.entries(); e.hasMoreElements();) {
-            ZipEntry zipEntry = (ZipEntry)e.nextElement();
-            if(zipEntry.isDirectory()) {
-                String name = zipEntry.getName();
-                name = name.substring(0, name.length() - 1);
-                File file = new File(dest + File.separator + name);
-                file.mkdirs();
-            } else {
-                File file = new File(dest + File.separator + zipEntry.getName());
-                file.getParentFile().mkdirs();
-                file.createNewFile();
-                InputStream is = zipFile.getInputStream(zipEntry);
-                FileOutputStream os = new FileOutputStream(file);
-                while((length = is.read(buffer, 0, BUFFER_SIZE)) != -1) {
-                    os.write(buffer, 0, length);
-                }
-                close(is);
-                close(os);
-            }
-        }
-        zipFile.close();
-    }
+    private static final int SMALL_BUFFER_SIZE = 512;
 
     public static void unzip(File zip, String dest) throws IOException {
         byte buffer[] = new byte[BUFFER_SIZE];
         int length = -1;
+        FileInputStream fis = null;
         ZipInputStream zis = null;
-        BufferedInputStream is = null;
         FileOutputStream fos = null;
-        BufferedOutputStream os = null;
+        BufferedOutputStream bos = null;
         try {
-            zis = new ZipInputStream(new FileInputStream(zip));
-            is = new BufferedInputStream(zis);
-            for (ZipEntry entry = null; (entry = zis.getNextEntry()) != null;) {
-                if (entry.isDirectory()) {
-                    File dir = new File(concat(dest, entry.getName()));
-                    dir.mkdirs();
-                } else {
+            fis = new FileInputStream(zip);
+            zis = new ZipInputStream(fis);
+            ZipEntry entry = null;
+            while ((entry = zis.getNextEntry()) != null) {
+                if (!entry.isDirectory()) {
                     File file = new File(concat(dest, entry.getName()));
                     file.getParentFile().mkdirs();
                     fos = new FileOutputStream(file);
-                    os = new BufferedOutputStream(fos);
-                    while ((length = is.read(buffer, 0, BUFFER_SIZE)) != -1) {
-                        os.write(buffer, 0, length);
+                    bos = new BufferedOutputStream(fos);
+                    while ((length = zis.read(buffer, 0, BUFFER_SIZE)) != -1) {
+                        bos.write(buffer, 0, length);
                     }
-                    close(fos);
                     zis.closeEntry();
+                    bos = close(bos);
+                    fos = close(fos);
                 }
             }
         } catch (IOException e) {
             throw e;
         } finally {
+            close(bos);
             close(fos);
             close(zis);
         }
@@ -98,18 +64,15 @@ public class FileUtil {
     }
 
     public static String hashCode(InputStream is, long size) throws IOException {
-        byte[] buffer = new byte[BUFFER_SIZE];
+        byte[] buffer = new byte[SMALL_BUFFER_SIZE];
         int length = -1;
         StringBuilder hash = new StringBuilder(String.format("FILE_%x", size));
         try {
             MessageDigest md = MessageDigest.getInstance("MD5");
-            if ((length = is.read(buffer, 0, BUFFER_SIZE)) != -1) {
-                md.update(buffer, 0, length);
+            if (size > SMALL_BUFFER_SIZE) {
+                is.skip(size - SMALL_BUFFER_SIZE);
             }
-            if (size > BUFFER_SIZE) {
-                is.skip(size - BUFFER_SIZE);
-            }
-            if ((length = is.read(buffer, 0, BUFFER_SIZE)) != -1) {
+            if ((length = is.read(buffer, 0, SMALL_BUFFER_SIZE)) != -1) {
                 md.update(buffer, 0, length);
             }
             BigInteger bi = new BigInteger(1, md.digest());
